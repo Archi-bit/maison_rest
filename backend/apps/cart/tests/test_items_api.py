@@ -1,7 +1,7 @@
 from decimal import Decimal
 from uuid import uuid4
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -82,6 +82,16 @@ class CartItemsAPITest(TestCase):
                 self.assertIn("dish_id", response.json())
         response = self.client.post(
             self.url, {"quantity": 1}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("dish_id", response.json())
+        self.assertFalse(CartItem.objects.exists())
+
+    def test_rejects_fractional_dish_id_without_adding_another_dish(self):
+        response = self.client.post(
+            self.url,
+            {"dish_id": self.dish.pk + 0.5, "quantity": 1},
+            format="json",
         )
         self.assertEqual(response.status_code, 400)
         self.assertIn("dish_id", response.json())
@@ -265,6 +275,65 @@ class CartItemsAPITest(TestCase):
             {"total_quantity": 1, "total_price": "90.25"},
         )
 
+    def test_totals_use_updated_catalog_price(self):
+        response = self.client.post(
+            self.url, {"dish_id": self.dish.pk, "quantity": 3}, format="json"
+        )
+        self.assertEqual(response.status_code, 201)
+        cart_url = reverse("guest-cart")
+        self.assertEqual(
+            self.client.get(cart_url).json(),
+            {"total_quantity": 3, "total_price": "375.30"},
+        )
+
+        self.dish.price = Decimal("130.15")
+        self.dish.save(update_fields=["price"])
+
+        response = self.client.get(cart_url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"total_quantity": 3, "total_price": "390.45"},
+        )
+
+    def test_deleted_dish_is_removed_from_carts_and_cannot_be_added(self):
+        response = self.client.post(
+            self.url, {"dish_id": self.dish.pk, "quantity": 2}, format="json"
+        )
+        self.assertEqual(response.status_code, 201)
+        item_id = response.json()["id"]
+        response = self.client.post(
+            self.url,
+            {"dish_id": self.dessert.pk, "quantity": 1},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        CartItem.objects.create(cart=self.other_cart, dish=self.dish)
+        dish_id = self.dish.pk
+
+        self.dish.delete()
+
+        response = self.client.get(reverse("guest-cart"))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(
+            response.json(),
+            {"total_quantity": 1, "total_price": "90.25"},
+        )
+        self.assertFalse(CartItem.objects.filter(dish_id=dish_id).exists())
+        self.assertEqual(Cart.objects.count(), 2)
+        for method in (self.client.patch, self.client.delete):
+            with self.subTest(method=method.__name__):
+                response = method(
+                    self.item_url(item_id), {"quantity": 1}, format="json"
+                )
+                self.assertEqual(response.status_code, 404)
+        response = self.client.post(
+            self.url, {"dish_id": dish_id, "quantity": 1}, format="json"
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("dish_id", response.json())
+        self.assertEqual(CartItem.objects.count(), 1)
+
     def test_unsupported_methods_and_options_do_not_change_items(self):
         item = CartItem.objects.create(cart=self.cart, dish=self.dish)
         self.assertEqual(self.client.get(self.url).status_code, 405)
@@ -278,3 +347,36 @@ class CartItemsAPITest(TestCase):
         item.refresh_from_db()
         self.assertEqual(item.quantity, 1)
         self.assertEqual(CartItem.objects.count(), 1)
+
+    @override_settings(CORS_ALLOWED_ORIGINS=["http://localhost:5173"])
+    def test_cors_allows_item_operations_and_exposes_cart_token(self):
+        item = CartItem.objects.create(cart=self.cart, dish=self.dish)
+        for method, url, payload, expected_status in (
+            (
+                self.client.post, self.url,
+                {"dish_id": self.dish.pk, "quantity": 2}, 200,
+            ),
+            (
+                self.client.patch, self.item_url(item.pk),
+                {"quantity": 3}, 200,
+            ),
+            (self.client.delete, self.item_url(item.pk), {}, 204),
+        ):
+            with self.subTest(method=method.__name__):
+                response = method(
+                    url, payload, format="json",
+                    HTTP_ORIGIN="http://localhost:5173",
+                )
+                self.assertEqual(response.status_code, expected_status)
+                self.assertEqual(
+                    response["Access-Control-Allow-Origin"],
+                    "http://localhost:5173",
+                )
+                self.assertEqual(
+                    response["X-Cart-Token"], str(self.cart.token)
+                )
+                self.assertIn(
+                    "x-cart-token",
+                    response["Access-Control-Expose-Headers"].lower(),
+                )
+        self.assertFalse(self.cart.items.exists())

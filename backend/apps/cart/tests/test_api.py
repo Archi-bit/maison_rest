@@ -99,6 +99,18 @@ class GuestCartTest(TestCase):
         self.assertIn(
             "X-Cart-Token", response["Access-Control-Expose-Headers"]
         )
+        token = response["X-Cart-Token"]
+        response = self.client.get(
+            self.url,
+            HTTP_ORIGIN="http://localhost:5173",
+            HTTP_X_CART_TOKEN=token,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["X-Cart-Token"], token)
+        self.assertEqual(
+            response["Access-Control-Allow-Origin"], "http://localhost:5173"
+        )
+        self.assertEqual(Cart.objects.count(), 1)
 
     @override_settings(CORS_ALLOWED_ORIGINS=["http://localhost:5173"])
     def test_cors_does_not_allow_unknown_origin(self):

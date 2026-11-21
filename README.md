@@ -78,8 +78,11 @@ curl -f -H 'Accept: application/json' http://127.0.0.1:8000/api/v1/health/
 Для будущих API по умолчанию включены `SessionAuthentication`, `BasicAuthentication`
 и доступ только аутентифицированным пользователям (`IsAuthenticated`). Проверочный
 маршрут `/api/v1/health/` открыт всем и поддерживает GET и OPTIONS.
-Каталог пока не имеет API. Гостевая корзина доступна без авторизации по адресу
-`/api/v1/cart/`.
+Базовый адрес REST API при локальном запуске: `http://127.0.0.1:8000/api/v1/`.
+Маршруты `catalog` и `cart` подключены через `include()` в `backend/config/urls.py`.
+Каталог пока содержит только модель `Dish`: API категорий и блюд ещё не реализован.
+Swagger/OpenAPI не настроен. Гостевая корзина доступна без авторизации по адресу
+`/api/v1/cart/` (`GET` — итоги, `POST` — создание или получение корзины).
 
 ## Гостевая корзина
 
@@ -110,6 +113,7 @@ curl -f -H 'Accept: application/json' http://127.0.0.1:8000/api/v1/health/
 теле `POST` — идентификатор блюда `dish_id`. Для актуальных итогов используйте
 прежний `GET /api/v1/cart/`.
 
+`dish_id` должен быть положительным целым числом.
 Количество обязательно: целое число от 1 до 2147483647. Ошибки входных данных,
 включая неизвестное блюдо и переполнение количества при повторном добавлении,
 возвращают `400` с ошибками по полям. Несуществующая позиция и позиция чужой
@@ -123,6 +127,52 @@ curl -f -H 'Accept: application/json' http://127.0.0.1:8000/api/v1/health/
 зарегистрированы в Django Admin.
 Операции API над позициями обновляют `Cart.updated_at`. Изменения выполняются
 в транзакции с блокировкой корзины, включая первое добавление блюда.
+При удалении блюда его позиции удаляются из всех корзин. Повторное добавление
+удалённого блюда возвращает `400`, изменение или удаление исчезнувшей позиции — `404`.
+
+## Проверка CORS
+
+В `backend/.env` задайте разрешённые адреса frontend, например:
+
+```dotenv
+CORS_ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+```
+
+Схема, хост и порт должны совпадать с Origin браузера. После изменения окружения
+перезапустите Backend с новыми значениями. CORS действует для `/api/`; стандартные
+заголовки, `Content-Type` и `X-Cart-Token` разрешены, а `X-Cart-Token` открыт для чтения
+через `response.headers.get("X-Cart-Token")`. Поддерживаются `GET`, `POST`, `PATCH`,
+`DELETE` и предварительные `OPTIONS`; доступность операции определяет маршрут.
+
+При запущенном Backend проверьте предварительный запрос (для `DELETE` замените
+значение `PATCH`):
+
+```bash
+curl -i -X OPTIONS http://127.0.0.1:8000/api/v1/cart/items/1/ \
+  -H 'Origin: http://localhost:5173' \
+  -H 'Access-Control-Request-Method: PATCH' \
+  -H 'Access-Control-Request-Headers: content-type,x-cart-token'
+```
+
+Ожидаются `200`, `Access-Control-Allow-Origin: http://localhost:5173`, `PATCH` в
+`Access-Control-Allow-Methods`, `content-type` и `x-cart-token` в
+`Access-Control-Allow-Headers`. `OPTIONS` не создаёт и не изменяет корзины.
+Повторите с `Origin: https://unknown.example`: разрешающего заголовка
+`Access-Control-Allow-Origin` быть не должно.
+
+Для проверки реального ответа создайте корзину:
+
+```bash
+curl -i -X POST http://127.0.0.1:8000/api/v1/cart/ \
+  -H 'Origin: http://localhost:5173'
+curl -i http://127.0.0.1:8000/api/v1/cart/ \
+  -H 'Origin: http://localhost:5173' \
+  -H 'X-Cart-Token: <токен из предыдущего ответа>'
+```
+
+Ожидаются соответственно `201` и `200`, `X-Cart-Token` и
+`Access-Control-Expose-Headers: X-Cart-Token`. CORS управляет доступом браузера
+к ответам; доступ к конкретной корзине по-прежнему определяется её токеном.
 
 ## Запуск без Docker
 
