@@ -1,22 +1,23 @@
 services:
   backend:
     build: ./backend
+    restart: unless-stopped
     env_file:
       - ./backend/.env
     environment:
+      DEBUG: "False"
       DB_HOST: db
       DB_PORT: "5432"
-    ports:
-      - "127.0.0.1:8000:8000"
+    volumes:
+      - static_files:/app/staticfiles
+      - media_files:/app/media
     depends_on:
       db:
         condition: service_healthy
-    command: >
-      sh -c "python manage.py migrate --noinput &&
-             python manage.py runserver 0.0.0.0:8000"
 
   db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_DB: ${DB_NAME:-maison}
       POSTGRES_USER: ${DB_USER:-maison}
@@ -24,11 +25,25 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 5s
 
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "${HTTP_BIND:-127.0.0.1:80}:80"
+    volumes:
+      - ./nginx:/etc/nginx/conf.d:ro
+      - static_files:/srv/static:ro
+      - media_files:/srv/media:ro
+
 volumes:
   postgres_data:
+  static_files:
+  media_files:
