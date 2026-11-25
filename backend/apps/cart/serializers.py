@@ -5,6 +5,13 @@ from apps.cart.services import MAX_ITEM_QUANTITY
 from apps.catalog.models import Dish
 
 
+class CartSummarySerializer(serializers.Serializer):
+    total_quantity = serializers.IntegerField(min_value=0)
+    total_price = serializers.CharField(
+        help_text="Сумма с двумя знаками после запятой."
+    )
+
+
 class CartItemSerializer(serializers.ModelSerializer):
     dish_id = serializers.PrimaryKeyRelatedField(
         source="dish",

@@ -117,6 +117,42 @@ docker compose --env-file backend/.env logs --tail=100 backend db nginx
 [docker-ubuntu]: https://docs.docker.com/engine/install/ubuntu/
 [ec2-security-group]: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/security-group-rules-reference.html
 
+## HTTPS на тестовом EC2
+
+Тестовые адреса — `https://maison-rest.duckdns.org/api/v1/health/` и
+`https://maison-rest.duckdns.org/api/swagger/`. Для HTTPS запускайте Compose с
+`-f docker-compose.yml -f docker-compose.https.yml` из `/home/ubuntu/maison-test`.
+Задайте в серверном `backend/.env` `HTTPS_BIND=0.0.0.0:443`, добавьте
+`maison-rest.duckdns.org` в `ALLOWED_HOSTS` и задайте
+`CSRF_TRUSTED_ORIGINS=https://maison-rest.duckdns.org`. Включите `HTTPS_ENABLED=True`
+для безопасных cookie и доверия заголовку схемы от Nginx.
+
+При первой настройке проверьте DNS и HTTP снаружи EC2. Установите `certbot` из
+репозитория Ubuntu и создайте `/var/www/maison-acme`, `/etc/letsencrypt` и
+`/etc/maison-test/nginx`. Запустите Nginx с обоими файлами Compose. До выпуска
+сертификата каталог `/etc/maison-test/nginx` должен быть пуст. Выпустите сертификат
+через `sudo certbot certonly --webroot -w /var/www/maison-acme -d maison-rest.duckdns.org`.
+Установите `deploy/nginx/https.conf` в `/etc/maison-test/nginx/`, затем выполните
+`nginx -t` и `nginx -s reload` в контейнере `nginx`. После внешней проверки HTTPS
+установите туда же `deploy/nginx/redirect.conf` и повторите проверку и перезагрузку.
+На порту 80 маршрут `/.well-known/acme-challenge/` остаётся доступен для продления.
+
+Установите `deploy/reload-nginx.sh` с правами `0755` в
+`/etc/letsencrypt/renewal-hooks/deploy/maison-test-nginx`. Для тестового проекта
+Compose используется имя `maison-test`. Включите `sudo systemctl enable --now certbot.timer`
+и проверьте продление командой
+`sudo certbot renew --cert-name maison-rest.duckdns.org --dry-run --run-deploy-hooks`.
+
+После остановки и нового запуска EC2 автоматически назначенный IPv4 может измениться.
+Если нужен автоматический DuckDNS, используйте однократный сервис systemd с таймером
+при загрузке и каждые пять минут. Храните токен в отдельном файле `root:root` с правами
+`0600` и передавайте сервису через `LoadCredential`. Скрипт может получать текущий
+публичный IPv4 через IMDSv2 и отправлять его по HTTPS в [DuckDNS API][duckdns-api].
+В журнал записывайте только результат `OK` или ошибку. Токен и URL запроса не должны
+попадать в журнал, аргументы процесса или Git.
+
+[duckdns-api]: https://www.duckdns.org/spec.jsp
+
 ## Проверки и команды Django
 
 ```bash
@@ -143,8 +179,13 @@ curl -f -H 'Accept: application/json' http://127.0.0.1/api/v1/health/
 Без Docker `runserver` по умолчанию использует порт `8000`.
 Маршруты `catalog` и `cart` подключены через `include()` в `backend/config/urls.py`.
 Каталог пока содержит только модель `Dish`: API категорий и блюд ещё не реализован.
-Swagger/OpenAPI не настроен. Гостевая корзина доступна без авторизации по адресу
+Гостевая корзина доступна без авторизации по адресу
 `/api/v1/cart/` (`GET` — итоги, `POST` — создание или получение корзины).
+
+Swagger UI доступен по `/api/swagger/`, схема OpenAPI — по `/api/schema/`.
+Схема описывает существующие методы корзины, включая заголовок `X-Cart-Token`.
+Файлы интерфейса собирает `collectstatic` и раздаёт Nginx, поэтому для Swagger
+не нужен внешний CDN.
 
 ## Гостевая корзина
 
@@ -270,4 +311,4 @@ Django сам не читает `.env`: при запуске без Docker пе
 - `backend/Dockerfile`, `docker-compose.yml`, `nginx/` — запуск Django, PostgreSQL и Nginx по HTTP.
 - `docs/architecture.md` — архитектура и распределение задач.
 
-JWT, API каталога, frontend, домен и HTTPS пока не настроены.
+JWT, API каталога и frontend пока не настроены.

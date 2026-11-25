@@ -1,0 +1,8 @@
+services:
+  nginx:
+    ports:
+      - "${HTTPS_BIND:-127.0.0.1:443}:443"
+    volumes:
+      - /var/www/maison-acme:/var/www/acme:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /etc/maison-test/nginx:/etc/nginx/tls.d:ro

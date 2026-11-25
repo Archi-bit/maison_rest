@@ -1,4 +1,10 @@
 from django.core.exceptions import ValidationError as DjangoValidationError
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import (
+    OpenApiParameter,
+    extend_schema,
+    extend_schema_view,
+)
 from rest_framework import status
 from rest_framework.decorators import (
     api_view,
@@ -13,6 +19,7 @@ from apps.cart.models import Cart, CartItem
 from apps.cart.serializers import (
     CartItemQuantitySerializer,
     CartItemSerializer,
+    CartSummarySerializer,
 )
 from apps.cart.services import (
     add_cart_item,
@@ -22,6 +29,19 @@ from apps.cart.services import (
     get_cart_total_price,
     get_cart_total_quantity,
     update_cart_item_quantity,
+)
+
+
+CART_TOKEN = OpenApiParameter(
+    "X-Cart-Token", OpenApiTypes.UUID, OpenApiParameter.HEADER, required=True
+)
+OPTIONAL_CART_TOKEN = OpenApiParameter(
+    "X-Cart-Token", OpenApiTypes.UUID, OpenApiParameter.HEADER,
+    description="Без заголовка создаётся новая корзина.",
+)
+CART_TOKEN_RESPONSE = OpenApiParameter(
+    "X-Cart-Token", OpenApiTypes.UUID, OpenApiParameter.HEADER,
+    response=[200, 201, 204],
 )
 
 
@@ -45,6 +65,17 @@ def _cart_response(cart, payload=None, response_status=status.HTTP_200_OK):
     )
 
 
+@extend_schema_view(
+    get=extend_schema(
+        parameters=[CART_TOKEN, CART_TOKEN_RESPONSE],
+        responses={200: CartSummarySerializer},
+    ),
+    post=extend_schema(
+        parameters=[OPTIONAL_CART_TOKEN, CART_TOKEN_RESPONSE],
+        request=None,
+        responses={200: CartSummarySerializer, 201: CartSummarySerializer},
+    ),
+)
 @api_view(["GET", "POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -67,6 +98,11 @@ def guest_cart(request):
     )
 
 
+@extend_schema(
+    parameters=[CART_TOKEN, CART_TOKEN_RESPONSE],
+    request=CartItemSerializer,
+    responses={200: CartItemSerializer, 201: CartItemSerializer},
+)
 @api_view(["POST"])
 @authentication_classes([])
 @permission_classes([AllowAny])
@@ -86,6 +122,17 @@ def cart_items(request):
     )
 
 
+@extend_schema_view(
+    patch=extend_schema(
+        parameters=[CART_TOKEN, CART_TOKEN_RESPONSE],
+        request=CartItemQuantitySerializer,
+        responses={200: CartItemSerializer},
+    ),
+    delete=extend_schema(
+        parameters=[CART_TOKEN, CART_TOKEN_RESPONSE],
+        responses={204: None},
+    ),
+)
 @api_view(["PATCH", "DELETE"])
 @authentication_classes([])
 @permission_classes([AllowAny])
