@@ -17,7 +17,6 @@ CSRF_TRUSTED_ORIGINS = [
     if origin.strip()
 ]
 if os.getenv("HTTPS_ENABLED", "False").lower() == "true":
-    # Nginx sets this header and Gunicorn has no published port.
     SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
     SESSION_COOKIE_SECURE = True
     CSRF_COOKIE_SECURE = True
@@ -30,11 +29,13 @@ INSTALLED_APPS = [
     "django.contrib.messages",
     "django.contrib.staticfiles",
     "rest_framework",
+    "rest_framework_simplejwt",
     "drf_spectacular",
     "drf_spectacular_sidecar",
     "corsheaders",
     "apps.catalog",
     "apps.cart",
+    "apps.staff",
 ]
 MIDDLEWARE = [
     "corsheaders.middleware.CorsMiddleware",
@@ -85,6 +86,10 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+}
+
+SIMPLE_JWT = {
+    "USER_AUTHENTICATION_RULE": "apps.staff.permissions.is_active_employee",
 }
 
 SPECTACULAR_SETTINGS = {

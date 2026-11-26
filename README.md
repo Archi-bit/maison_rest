@@ -177,15 +177,32 @@ curl -f -H 'Accept: application/json' http://127.0.0.1/api/v1/health/
 маршрут `/api/v1/health/` открыт всем и поддерживает GET и OPTIONS.
 Базовый адрес REST API при запуске через Compose — `http://127.0.0.1/api/v1/`.
 Без Docker `runserver` по умолчанию использует порт `8000`.
-Маршруты `catalog` и `cart` подключены через `include()` в `backend/config/urls.py`.
+Маршруты `catalog`, `cart` и `staff` подключены в `backend/config/urls.py`.
 Каталог пока содержит только модель `Dish`: API категорий и блюд ещё не реализован.
 Гостевая корзина доступна без авторизации по адресу
 `/api/v1/cart/` (`GET` — итоги, `POST` — создание или получение корзины).
 
 Swagger UI доступен по `/api/swagger/`, схема OpenAPI — по `/api/schema/`.
-Схема описывает существующие методы корзины, включая заголовок `X-Cart-Token`.
+Схема описывает API сотрудников и методы корзины, включая заголовок `X-Cart-Token`.
 Файлы интерфейса собирает `collectstatic` и раздаёт Nginx, поэтому для Swagger
 не нужен внешний CDN.
+
+## Сотрудники
+
+Уполномоченный администратор создаёт пользователя в Django Admin и назначает ему
+один профиль `EmployeeProfile`. Роли — `owner` (владелец), `admin` (администратор)
+и `waiter` (официант). Доступ к API сотрудников требует активной учётной записи
+Django с профилем. Доступ к самой админке регулируют отдельные разрешения Django.
+
+| Метод и URL | Что передать | Успешный ответ |
+| --- | --- | --- |
+| `POST /api/v1/staff/login/` | JSON с полями `username` и `password` | `access` и `refresh` |
+| `POST /api/v1/staff/token/refresh/` | JSON с полем `refresh` | Новый `access` |
+| `GET /api/v1/staff/me/` | Заголовок `Authorization: Bearer <access>` | `id` профиля, `first_name`, `last_name`, `username` и `role` |
+
+Срок действия access-токена — 5 минут, refresh-токена — 24 часа. Чтобы проверить
+профиль в Swagger UI, получите токены через `login`, нажмите **Authorize** и вставьте
+значение `access` в поле `jwtAuth`.
 
 ## Гостевая корзина
 

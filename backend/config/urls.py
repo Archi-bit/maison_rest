@@ -18,4 +18,5 @@ urlpatterns = [
     path("api-auth/", include("rest_framework.urls")),
     path("api/v1/", include("apps.catalog.urls")),
     path("api/v1/", include("apps.cart.urls")),
+    path("api/v1/", include("apps.staff.urls")),
 ]

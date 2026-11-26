@@ -31,6 +31,52 @@ class SchemaTest(SimpleTestCase):
                     headers = operation["responses"][status]["headers"]
                     self.assertIn("X-Cart-Token", headers)
 
+    def test_schema_describes_staff_tokens_and_protected_profile(self):
+        response = self.client.get(
+            "/api/schema/", HTTP_ACCEPT="application/vnd.oai.openapi+json"
+        )
+        self.assertEqual(response.status_code, 200)
+        schema = response.json()
+        paths = schema["paths"]
+        components = schema["components"]
+        schemas = components["schemas"]
+        self.assertEqual(
+            components["securitySchemes"]["jwtAuth"],
+            {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"},
+        )
+
+        for path, request_fields, response_fields in (
+            ("login", {"username", "password"}, {"access", "refresh"}),
+            ("token/refresh", {"refresh"}, {"access"}),
+        ):
+            with self.subTest(path=path):
+                operation = paths[f"/api/v1/staff/{path}/"]["post"]
+                self.assertFalse(operation.get("security"))
+                request_ref = operation["requestBody"]["content"][
+                    "application/json"
+                ]["schema"]["$ref"]
+                response_ref = operation["responses"]["200"]["content"][
+                    "application/json"
+                ]["schema"]["$ref"]
+                request_schema = schemas[request_ref.rsplit("/", 1)[-1]]
+                response_schema = schemas[response_ref.rsplit("/", 1)[-1]]
+                self.assertEqual(
+                    set(request_schema["properties"]), request_fields
+                )
+                self.assertEqual(
+                    set(response_schema["properties"]), response_fields
+                )
+
+        profile = paths["/api/v1/staff/me/"]["get"]
+        self.assertEqual(profile["security"], [{"jwtAuth": []}])
+        profile_ref = profile["responses"]["200"]["content"][
+            "application/json"
+        ]["schema"]["$ref"]
+        self.assertEqual(
+            set(schemas[profile_ref.rsplit("/", 1)[-1]]["properties"]),
+            {"id", "first_name", "last_name", "username", "role"},
+        )
+
     def test_swagger_uses_server_schema_and_local_assets(self):
         response = self.client.get("/api/swagger/")
         self.assertContains(response, "/api/schema/")
